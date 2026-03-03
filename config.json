@@ -1,0 +1,30 @@
+{
+  "line": {
+    "channel_id": "2009305001",
+    "channel_secret": "87c859203d8a9b8e55aa8dd2b495e889",
+    "access_token": "vttx04QnmH5l0VxMCGkYLct/YPlXoPyIz/rYR2WzApSvi2puACPdK+kZkqjLlLg8TvREp1/ESoROD2hnp16TXWhB8kYukdm62tTXoClM66xk+xZ2RPBVIQC1u0vqsv/pRHkmyes1KxXYwZG2BGDDxAdB04t89/1O/w1cDnyilFU=",
+    "user_id": "U6642e63a6f7d367f029fbcaaeb9c1382",
+    "webhook_url": "https://your-server.com/webhook"
+  },
+  "openclaw": {
+    "gateway_url": "http://localhost:3000",
+    "gateway_token": "YOUR_GATEWAY_TOKEN_HERE",
+    "default_model": "minimax-portal/MiniMax-M2.5"
+  },
+  "bot": {
+    "name": "Mami_Master Creator",
+    "description": "Bot creation assistant",
+    "language": "th",
+    "personality": "friendly, helpful, efficient"
+  },
+  "features": {
+    "rich_menu": true,
+    "quick_reply": true,
+    "line_chatbot": true
+  },
+  "defaults": {
+    "agent_type": "subagent",
+    "max_bots_per_user": 10,
+    "session_timeout_minutes": 30
+  }
+}

@@ -1,15 +1,15 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
-const axios = require('axios');
+const crypto = require('crypto');
 
 const app = express();
 
-// LINE Bot Configuration - with fallback
+// LINE Bot Configuration
 const config = {
-  channelId: process.env.LINE_CHANNEL_ID || '',
-  channelSecret: process.env.LINE_CHANNEL_SECRET || '',
-  channelAccessToken: process.env.LINE_ACCESS_TOKEN || '',
-  userId: process.env.LINE_USER_ID || ''
+  channelId: process.env.LINE_CHANNEL_ID,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken: process.env.LINE_ACCESS_TOKEN,
+  userId: process.env.LINE_USER_ID
 };
 
 let client;
@@ -34,7 +34,10 @@ const COMMANDS = {
   CANCEL: ['ยกเลิก', 'cancel', 'h']
 };
 
-// Middleware
+// Raw body parser for LINE webhook
+app.use('/webhook', express.raw({ type: 'application/json' }));
+
+// JSON parser for other routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -46,19 +49,32 @@ app.get('/', (req, res) => {
 // Webhook for LINE
 app.post('/webhook', async (req, res) => {
   try {
-    // Check if LINE client is initialized
-    if (!client) {
-      console.error('LINE Client not initialized');
-      return res.status(500).send('LINE Client Error');
+    // Get raw body for signature validation
+    const rawBody = req.body;
+    
+    // Validate signature
+    const signature = req.headers['x-line-signature'];
+    if (signature && config.channelSecret) {
+      const hash = crypto
+        .createHmac('SHA256', config.channelSecret)
+        .update(rawBody)
+        .digest('base64');
+      
+      if (hash !== signature) {
+        console.error('Invalid signature');
+        return res.status(200).send('OK');
+      }
     }
 
-    const events = req.body.events;
-    if (!events || events.length === 0) {
+    // Parse JSON after validation
+    const events = JSON.parse(rawBody.toString());
+    
+    if (!events || !events.events || events.events.length === 0) {
       return res.status(200).send('OK');
     }
     
-    for (const event of events) {
-      if (event.type === 'message' && event.message.type === 'text') {
+    for (const event of events.events) {
+      if (event.type === 'message' && event.message && event.message.type === 'text') {
         await handleTextMessage(event);
       }
     }
@@ -66,14 +82,14 @@ app.post('/webhook', async (req, res) => {
     res.status(200).send('OK');
   } catch (error) {
     console.error('Webhook Error:', error);
-    res.status(200).send('OK'); // Return 200 to prevent LINE from retrying
+    res.status(200).send('OK');
   }
 });
 
 // Handle text messages
 async function handleTextMessage(event) {
-  const userId = event.source.userId;
-  const userMessage = event.message.text.trim();
+  const userId = event.source && event.source.userId;
+  const userMessage = event.message && event.message.text ? event.message.text.trim() : '';
   const replyToken = event.replyToken;
 
   if (!userId || !replyToken) return;
@@ -221,28 +237,6 @@ async function handleCapabilitiesInput(userId, capabilities, replyToken) {
   
   const { botName, description } = session.data;
 
-  // Create the bot using OpenClaw (if available)
-  let openclawResult = '';
-  try {
-    if (OPENCLAW_TOKEN) {
-      await axios.post(`${OPENCLAW_URL}/api/sessions`, {
-        runtime: 'subagent',
-        label: botName,
-        task: `Create a new agent with:\n- Name: ${botName}\n- Description: ${description}\n- Capabilities: ${capabilities}\n\nThis agent is for Jo's workspace.`,
-        mode: 'run'
-      }, {
-        headers: {
-          'Authorization': `Bearer ${OPENCLAW_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      openclawResult = '\n\n✅ Bot ได้ถูกสร้างในระบบ OpenClaw แล้ว!';
-    }
-  } catch (error) {
-    console.error('OpenClaw Error:', error.message);
-    openclawResult = '\n\n⚠️ Bot specification ถูกบันทึกแล้ว กำลังรอการสร้างในระบบ';
-  }
-
   // Clear session
   userSessions.delete(userId);
 
@@ -254,7 +248,8 @@ async function handleCapabilitiesInput(userId, capabilities, replyToken) {
         `• ชื่อ: ${botName}\n` +
         `• คำอธิบาย: ${description}\n` +
         `• ความสามารถ: ${capabilities}\n\n` +
-        `พิมพ์ "รายชื่อ" เพื่อดู Bot ทั้งหมด หรือ "สร้าง bot" เพื่อสร้าง Bot ใหม่${openclawResult}`
+        `✅ Bot specification ถูกบันทึกแล้ว!\n` +
+        `พิมพ์ "รายชื่อ" เพื่อดู Bot ทั้งหมด หรือ "สร้าง bot" เพื่อสร้าง Bot ใหม่`
     });
   } catch (e) {
     console.error('Reply Error:', e.message);

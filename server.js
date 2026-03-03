@@ -4,22 +4,26 @@ const axios = require('axios');
 
 const app = express();
 
-// LINE Bot Configuration
+// LINE Bot Configuration - with fallback
 const config = {
-  channelId: process.env.LINE_CHANNEL_ID,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-  channelAccessToken: process.env.LINE_ACCESS_TOKEN,
-  userId: process.env.LINE_USER_ID
+  channelId: process.env.LINE_CHANNEL_ID || '',
+  channelSecret: process.env.LINE_CHANNEL_SECRET || '',
+  channelAccessToken: process.env.LINE_ACCESS_TOKEN || '',
+  userId: process.env.LINE_USER_ID || ''
 };
 
-// LINE Client
-const client = new line.Client(config);
+let client;
+try {
+  client = new line.Client(config);
+} catch (e) {
+  console.error('LINE Client Error:', e.message);
+}
 
 // OpenClaw Gateway Configuration
 const OPENCLAW_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://localhost:3000';
 const OPENCLAW_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || '';
 
-// In-memory storage for bot creation sessions (for demo - use database in production)
+// In-memory storage
 const userSessions = new Map();
 
 // Command keywords
@@ -40,20 +44,29 @@ app.get('/', (req, res) => {
 });
 
 // Webhook for LINE
-app.post('/webhook', line.middleware(config), async (req, res) => {
+app.post('/webhook', async (req, res) => {
   try {
+    // Check if LINE client is initialized
+    if (!client) {
+      console.error('LINE Client not initialized');
+      return res.status(500).send('LINE Client Error');
+    }
+
     const events = req.body.events;
+    if (!events || events.length === 0) {
+      return res.status(200).send('OK');
+    }
     
-    await Promise.all(events.map(async (event) => {
+    for (const event of events) {
       if (event.type === 'message' && event.message.type === 'text') {
         await handleTextMessage(event);
       }
-    }));
+    }
 
     res.status(200).send('OK');
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).send('Error');
+    console.error('Webhook Error:', error);
+    res.status(200).send('OK'); // Return 200 to prevent LINE from retrying
   }
 });
 
@@ -62,6 +75,8 @@ async function handleTextMessage(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text.trim();
   const replyToken = event.replyToken;
+
+  if (!userId || !replyToken) return;
 
   // Get or create user session
   if (!userSessions.has(userId)) {
@@ -114,10 +129,14 @@ async function handleCreateCommand(userId, replyToken) {
     data: {}
   });
 
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: '🤖 การสร้าง Bot ใหม่\n\nกรุณาตั้งชื่อ Bot ที่ต้องการสร้าง (ใช้ภาษาอังกฤษ เช่น Mami_Sales, Mami_Support):'
-  });
+  try {
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: '🤖 การสร้าง Bot ใหม่\n\nกรุณาตั้งชื่อ Bot ที่ต้องการสร้าง (ใช้ภาษาอังกฤษ เช่น Mami_Sales, Mami_Support):'
+    });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
 async function handleListCommand(replyToken) {
@@ -129,10 +148,11 @@ async function handleListCommand(replyToken) {
     '• Mami_Project - ติดตามโปรเจกต์\n\n' +
     'หากต้องการสร้าง Bot ใหม่ พิมพ์ "สร้าง bot" ได้เลย!';
 
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: message
-  });
+  try {
+    await client.replyMessage(replyToken, { type: 'text', text: message });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
 async function handleHelpCommand(replyToken) {
@@ -143,32 +163,40 @@ async function handleHelpCommand(replyToken) {
     '• ยกเลิก - ยกเลิกการทำรายการ\n\n' +
     'ตัวอย่าง: พิมพ์ "สร้าง bot" เพื่อเริ่มต้น';
 
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: message
-  });
+  try {
+    await client.replyMessage(replyToken, { type: 'text', text: message });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
 async function handleCancelCommand(userId, replyToken) {
   userSessions.delete(userId);
   
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: '❌ ยกเลิกการทำรายการแล้ว\n\nพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่งที่ใช้ได้'
-  });
+  try {
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: '❌ ยกเลิกการทำรายการแล้ว\n\nพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่งที่ใช้ได้'
+    });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
-// Conversation flow handlers
 async function handleBotNameInput(userId, botName, replyToken) {
   const session = userSessions.get(userId);
   session.data.botName = botName;
   session.state = 'waiting_bot_description';
   userSessions.set(userId, session);
 
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: `📝 ตั้งชื่อ Bot: "${botName}"\n\nกรุณาบอกคำอธิบาย Bot ของคุณ (เช่น "ผู้ช่วยดูแลลูกค้า"):`
-  });
+  try {
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: `📝 ตั้งชื่อ Bot: "${botName}"\n\nกรุณาบอกคำอธิบาย Bot ของคุณ (เช่น "ผู้ช่วยดูแลลูกค้า"):`
+    });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
 async function handleDescriptionInput(userId, description, replyToken) {
@@ -177,10 +205,14 @@ async function handleDescriptionInput(userId, description, replyToken) {
   session.state = 'waiting_bot_capabilities';
   userSessions.set(userId, session);
 
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: `📝 คำอธิบาย: "${description}"\n\nกรุณาบอกความสามารถของ Bot (เช่น "ตอบคำถามลูกค้า, ส่งข้อมูลสินค้า, รับออร์เดอร์"):`
-  });
+  try {
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: `📝 คำอธิบาย: "${description}"\n\nกรุณาบอกความสามารถของ Bot (เช่น "ตอบคำถามลูกค้า, ส่งข้อมูลสินค้า, รับออร์เดอร์"):`
+    });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
 async function handleCapabilitiesInput(userId, capabilities, replyToken) {
@@ -193,7 +225,7 @@ async function handleCapabilitiesInput(userId, capabilities, replyToken) {
   let openclawResult = '';
   try {
     if (OPENCLAW_TOKEN) {
-      const response = await axios.post(`${OPENCLAW_URL}/api/sessions`, {
+      await axios.post(`${OPENCLAW_URL}/api/sessions`, {
         runtime: 'subagent',
         label: botName,
         task: `Create a new agent with:\n- Name: ${botName}\n- Description: ${description}\n- Capabilities: ${capabilities}\n\nThis agent is for Jo's workspace.`,
@@ -214,15 +246,19 @@ async function handleCapabilitiesInput(userId, capabilities, replyToken) {
   // Clear session
   userSessions.delete(userId);
 
-  await client.replyMessage(replyToken, {
-    type: 'text',
-    text: `🎉 สร้าง Bot "${botName}" เสร็จสิ้น!\n\n` +
-      `📋 รายละเอียด:\n` +
-      `• ชื่อ: ${botName}\n` +
-      `• คำอธิบาย: ${description}\n` +
-      `• ความสามารถ: ${capabilities}\n\n` +
-      `พิมพ์ "รายชื่อ" เพื่อดู Bot ทั้งหมด หรือ "สร้าง bot" เพื่อสร้าง Bot ใหม่${openclawResult}`
-  });
+  try {
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: `🎉 สร้าง Bot "${botName}" เสร็จสิ้น!\n\n` +
+        `📋 รายละเอียด:\n` +
+        `• ชื่อ: ${botName}\n` +
+        `• คำอธิบาย: ${description}\n` +
+        `• ความสามารถ: ${capabilities}\n\n` +
+        `พิมพ์ "รายชื่อ" เพื่อดู Bot ทั้งหมด หรือ "สร้าง bot" เพื่อสร้าง Bot ใหม่${openclawResult}`
+    });
+  } catch (e) {
+    console.error('Reply Error:', e.message);
+  }
 }
 
 // Start server

@@ -12,7 +12,7 @@
     "default_model": "minimax-portal/MiniMax-M2.5"
   },
   "bot": {
-    "name": "Mami_Master Creator",
+    "name": "Mami_LineClaw",
     "description": "Bot creation assistant",
     "language": "th",
     "personality": "friendly, helpful, efficient"

@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
-const Database = require('better-sqlite3');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 
@@ -14,27 +15,29 @@ const LINE_USER_ID = process.env.LINE_USER_ID;
 const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://localhost:3000';
 const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || 'YOUR_GATEWAY_TOKEN';
 
-// ============ DATABASE SETUP ============
-const db = new Database('bots.db');
+// ============ JSON FILE STORAGE ============
+const DB_FILE = path.join(__dirname, 'database.json');
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT PRIMARY KEY,
-    line_user_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+function loadDB() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Error loading DB:', e.message);
+  }
+  return { users: {}, bots: [] };
+}
 
-  CREATE TABLE IF NOT EXISTS bots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT,
-    bot_name TEXT,
-    bot_description TEXT,
-    agent_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(user_id)
-  );
-`);
+function saveDB(data) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error saving DB:', e.message);
+  }
+}
+
+let db = loadDB();
 
 // ============ MIDDLEWARE ============
 app.use(express.json());
@@ -107,9 +110,12 @@ async function handleFollow(event) {
   const userId = event.source.userId;
   
   // Register user
-  const existingUser = db.prepare('SELECT * FROM users WHERE line_user_id = ?').get(userId);
-  if (!existingUser) {
-    db.prepare('INSERT INTO users (line_user_id) VALUES (?)').run(userId);
+  if (!db.users[userId]) {
+    db.users[userId] = {
+      line_user_id: userId,
+      created_at: new Date().toISOString()
+    };
+    saveDB(db);
   }
   
   await pushMessage(userId, 'สวัสดีค่ะ! 👋\n\nยินดีต้อนรับสู่ Mami_LineClaw!\n\nผมช่วยคุณสร้าง Bot ส่วนตัวได้\n\nพิมพ์ "สร้าง bot" เพื่อเริ่มต้นเลยค่ะ!');
@@ -123,25 +129,24 @@ async function handleTextMessage(event) {
   if (!userId || !replyToken) return;
 
   // Get user from database
-  let user = db.prepare('SELECT * FROM users WHERE line_user_id = ?').get(userId);
-  
-  // Register new user if not exists
-  if (!user) {
-    db.prepare('INSERT INTO users (line_user_id) VALUES (?)').run(userId);
-    user = db.prepare('SELECT * FROM users WHERE line_user_id = ?').get(userId);
+  if (!db.users[userId]) {
+    db.users[userId] = {
+      line_user_id: userId,
+      created_at: new Date().toISOString()
+    };
+    saveDB(db);
   }
 
-  // Get user's bots
-  const userBots = db.prepare('SELECT * FROM bots WHERE user_id = ?').all(user.user_id);
+  const user = db.users[userId];
+  const userBots = db.bots.filter(b => b.user_id === userId);
 
-  // Check if user has a personal bot and is in conversation with it
   const isCreatingBot = userMessage.toLowerCase().includes('สร้าง') && userMessage.toLowerCase().includes('bot');
   const isListingBots = userMessage.toLowerCase().includes('รายชื่อ') || userMessage.toLowerCase().includes('list');
   const isHelp = userMessage.toLowerCase().includes('ช่วย') || userMessage.toLowerCase() === '?';
   const isCancel = userMessage.toLowerCase().includes('ยกเลิก');
 
   if (isCreatingBot) {
-    await startBotCreation(userId, replyToken, user.user_id);
+    await startBotCreation(userId, replyToken, userId);
     return;
   }
 
@@ -161,7 +166,7 @@ async function handleTextMessage(event) {
   }
 
   // Check if user is creating a bot (multi-step)
-  const pendingBot = userBots.find(b => b.bot_name === null || b.bot_name === '');
+  const pendingBot = userBots.find(b => !b.bot_name || b.bot_name === '');
 
   if (pendingBot) {
     await handleBotCreationFlow(userId, userMessage, replyToken, pendingBot);
@@ -188,21 +193,33 @@ async function handleTextMessage(event) {
 // ============ BOT CREATION FLOW ============
 async function startBotCreation(userId, replyToken, dbUserId) {
   // Check max bots per user
-  const botCount = db.prepare('SELECT COUNT(*) as count FROM bots WHERE user_id = ?').get(dbUserId);
-  if (botCount.count >= 10) {
+  const botCount = db.bots.filter(b => b.user_id === dbUserId).length;
+  if (botCount >= 10) {
     await replyMessage(replyToken, 'คุณสร้าง Bot ได้สูงสุด 10 ตัวแล้วค่ะ!');
     return;
   }
 
   // Create pending bot record
-  db.prepare('INSERT INTO bots (user_id, bot_name) VALUES (?, ?)').run(dbUserId, '');
+  const newBot = {
+    id: Date.now(),
+    user_id: dbUserId,
+    bot_name: '',
+    bot_description: '',
+    agent_id: '',
+    created_at: new Date().toISOString()
+  };
+  db.bots.push(newBot);
+  saveDB(db);
 
   await replyMessage(replyToken, '🤖 สร้าง Bot ใหม่\n\nกรุณาตั้งชื่อ Bot (ภาษาอังกฤษ):\nเช่น Mami_Sales, Jo_Assistant');
 }
 
 async function handleBotCreationFlow(userId, userMessage, replyToken, pendingBot) {
+  const botIndex = db.bots.findIndex(b => b.id === pendingBot.id);
+  if (botIndex === -1) return;
+
   // Step 1: Bot name
-  if (pendingBot.bot_name === '') {
+  if (!pendingBot.bot_name || pendingBot.bot_name === '') {
     const botName = userMessage.trim();
     
     // Validate name
@@ -212,14 +229,16 @@ async function handleBotCreationFlow(userId, userMessage, replyToken, pendingBot
     }
 
     // Check duplicate name
-    const existing = db.prepare('SELECT * FROM bots WHERE bot_name = ?').get(botName);
+    const existing = db.bots.find(b => b.bot_name === botName);
     if (existing) {
       await replyMessage(replyToken, 'ชื่อ Bot นี้มีคนใช้แล้วค่ะ ลองชื่ออื่น');
       return;
     }
 
     // Update bot name and ask for description
-    db.prepare('UPDATE bots SET bot_name = ? WHERE id = ?').run(botName, pendingBot.id);
+    db.bots[botIndex].bot_name = botName;
+    saveDB(db);
+
     await replyMessage(replyToken, `📝 ชื่อ: ${botName}\n\nกรุณาบอกคำอธิบาย Bot (วัตถุประสงค์):\nเช่น ผู้ช่วยดูแลลูกค้า`);
     return;
   }
@@ -227,14 +246,16 @@ async function handleBotCreationFlow(userId, userMessage, replyToken, pendingBot
   // Step 2: Bot description
   if (!pendingBot.bot_description) {
     const description = userMessage.trim();
-    db.prepare('UPDATE bots SET bot_description = ? WHERE id = ?').run(description, pendingBot.id);
+    db.bots[botIndex].bot_description = description;
+    saveDB(db);
 
     // Create real agent in OpenClaw
     const agentId = await createOpenClawAgent(pendingBot.bot_name, description);
 
     if (agentId) {
       // Save agent_id to database
-      db.prepare('UPDATE bots SET agent_id = ? WHERE id = ?').run(agentId, pendingBot.id);
+      db.bots[botIndex].agent_id = agentId;
+      saveDB(db);
 
       await replyMessage(replyToken, `🎉 สร้าง Bot สำเร็จ!\n\n🤖 ชื่อ: ${pendingBot.bot_name}\n📋 คำอธิบาย: ${description}\n🆔 Agent ID: ${agentId}\n\nตอนนี้คุณสามารถคุยกับ ${pendingBot.bot_name} ได้เลย!\n\nพิมพ์ "รายชื่อ" เพื่อดู Bot ทั้งหมด`);
     } else {

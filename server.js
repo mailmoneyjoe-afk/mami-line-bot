@@ -53,6 +53,30 @@ async function handleEvent(event) {
     userName = profile.displayName;
   } catch(e) {}
   
+  // แปลงเป็นตัวเลข
+  var num = parseInt(text);
+  
+  // ถ้าเป็นตัวเลข 1-14 = สั่งเครื่องดื่ม
+  if (!isNaN(num) && num >= 1 && num <= 14) {
+    return processOrderByNum(num, replyToken, userName);
+  }
+  
+  // ถ้าเป็นตัวเลข 101-105 = คำสั่งพิเศษ
+  if (!isNaN(num) && num >= 101 && num <= 105) {
+    return processCommand(num, replyToken, userName);
+  }
+  
+  // ถ้าพิมพ์ชื่อเครื่องดื่มโดยตรง
+  var drink = null;
+  for (var i = 0; i < menu.length; i++) {
+    if (menu[i].name.toLowerCase().includes(text.toLowerCase())) {
+      drink = menu[i];
+      break;
+    }
+  }
+  if (drink) return addOrder(drink, replyToken, userName);
+  
+  // คำสั่งอื่นๆ
   if (text === 'เมนู' || text === 'menu') return replyMenu(replyToken);
   if (text === 'ราคา' || text === 'price') return replyPrice(replyToken);
   if (text === 'สั่งซื้อ' || text === 'order' || text === 'สั่ง') return replyStartOrder(replyToken, userName);
@@ -60,22 +84,40 @@ async function handleEvent(event) {
   if (text === 'ติดต่อ' || text === 'contact') return replyContact(replyToken);
   if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
   
-  // รองรับการสั่งแบบตัวเลข
-  var num = parseInt(text);
-  if (!isNaN(num) && num >= 1 && num <= 14) return processOrderByNum(num, replyToken, userName);
-  
-  return client.replyMessage(replyToken, {
-    type: 'text',
-    text: '☕ สวัสดีค่ะ ' + userName + '!\n\n• เมนู - ดูเมนู\n• ราคา - ดูราคา\n• สั่ง - สั่งซื้อ\n• ติดต่อ - ติดต่อร้าน\n• ประวัติ - ดูประวัติ'
-  });
+  // Default: แสดงเมนูหลัก
+  return replyMainMenu(replyToken, userName);
+}
+
+async function replyMainMenu(replyToken, userName) {
+  var t = '☕ สวัสดีค่ะ ' + userName + '!\n\n';
+  t += 'หน้าหลัก\n';
+  t += '─────────────────\n';
+  t += '1. 📋 เมนูเครื่องดื่ม\n';
+  t += '2. 💰 ราคา\n';
+  t += '3. 🛒 สั่งซื้อ\n';
+  t += '4. 📞 ติดต่อร้าน\n';
+  t += '5. 📜 ประวัติการสั่ง\n';
+  t += '\n💬 พิมพ์เลข 1-5';
+  return client.replyMessage(replyToken, { type: 'text', text: t });
+}
+
+async function processCommand(num, replyToken, userName) {
+  if (num === 101) return replyMenu(replyToken);
+  if (num === 102) return replyPrice(replyToken);
+  if (num === 103) return replyStartOrder(replyToken, userName);
+  if (num === 104) return replyContact(replyToken);
+  if (num === 105) return replyHistory(replyToken, userName);
+  return replyMainMenu(replyToken, userName);
 }
 
 async function replyMenu(replyToken) {
-  var t = '☕ เมนูร้านกาแฟ\n\n';
+  var t = '📋 เมนูเครื่องดื่ม\n\n';
   menu.forEach(function(m) {
     t += m.num + '. ' + m.name + ' - ' + m.price + ' บาท\n';
   });
-  t += '\n💬 พิมพ์เลข 1-14 เพื่อสั่ง';
+  t += '\n─────────────────\n';
+  t += '💬 พิมพ์เลข 1-14 เพื่อสั่ง\n';
+  t += '0. กลับหน้าหลัก';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
@@ -84,11 +126,20 @@ async function replyPrice(replyToken) {
   menu.forEach(function(m) {
     t += m.num + '. ' + m.name + ': ' + m.price + ' บาท\n';
   });
+  t += '\n─────────────────\n';
+  t += '💬 พิมพ์เลข 1-14 เพื่อสั่ง\n';
+  t += '0. กลับหน้าหลัก';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
 async function replyContact(replyToken) {
-  return client.replyMessage(replyToken, { type: 'text', text: '📞 ติดต่อร้าน\n\n📍 กรุงเทพ\n📞 02-xxx-xxxx\n⏰ 07:00-21:00' });
+  var t = '📞 ติดต่อร้าน\n\n';
+  t += '📍 กรุงเทพ\n';
+  t += '📞 02-xxx-xxxx\n';
+  t += '⏰ 07:00-21:00\n';
+  t += '\n─────────────────\n';
+  t += '0. กลับหน้าหลัก';
+  return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
 async function replyStartOrder(replyToken, userName) {
@@ -96,7 +147,9 @@ async function replyStartOrder(replyToken, userName) {
   menu.forEach(function(m) {
     t += m.num + '. ' + m.name + ' - ' + m.price + ' บาท\n';
   });
-  t += '\n💬 พิมพ์เลขที่ต้องการ (1-14)';
+  t += '\n─────────────────\n';
+  t += '💬 พิมพ์เลขที่ต้องการ (1-14)\n';
+  t += '0. กลับหน้าหลัก';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
@@ -116,7 +169,11 @@ async function processOrder(text, replyToken, userName) {
 
 async function processOrderByNum(num, replyToken, userName) {
   var drink = menu.find(function(m) { return m.num === num; });
-  if (!drink) return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
+  if (!drink) {
+    // ถ้าไม่พบในเมนู ให้กลับหน้าหลัก
+    if (num === 0) return replyMainMenu(replyToken, userName);
+    return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
+  }
   
   return addOrder(drink, replyToken, userName);
 }
@@ -125,16 +182,31 @@ async function addOrder(drink, replyToken, userName) {
   var order = { id: orders.length + 1, user: userName, drink: drink.name, price: drink.price, time: new Date().toLocaleString('th') };
   orders.push(order);
   
-  return client.replyMessage(replyToken, { type: 'text', text: '✅ รับออร์เดอร์แล้ว!\n\n☕ ' + drink.name + '\n💵 ' + drink.price + ' บาท\n\nขอบคุณค่ะ 🙏' });
+  var t = '✅ รับออร์เดอร์แล้ว!\n\n';
+  t += '☕ ' + drink.name + '\n';
+  t += '💵 ' + drink.price + ' บาท\n';
+  t += '\n─────────────────\n';
+  t += 'ขอบคุณค่ะ 🙏\n';
+  t += '0. กลับหน้าหลัก';
+  
+  return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
 async function replyHistory(replyToken, userName) {
   var userOrders = orders.filter(function(o) { return o.user === userName; });
-  if (userOrders.length === 0) return client.replyMessage(replyToken, { type: 'text', text: 'ยังไม่เคยสั่งเลยค่ะ' });
-  var t = '📜 ประวัติ\n';
+  if (userOrders.length === 0) {
+    var t = '📜 ประวัติการสั่ง\n\n';
+    t += 'ยังไม่เคยสั่งเลยค่ะ\n';
+    t += '\n─────────────────\n';
+    t += '0. กลับหน้าหลัก';
+    return client.replyMessage(replyToken, { type: 'text', text: t });
+  }
+  var t = '📜 ประวัติการสั่ง\n';
   var total = 0;
-  userOrders.slice(-5).forEach(function(o) { t += o.drink + ' - ' + o.price + ' บาท\n'; total += o.price; });
+  userOrders.slice(-5).forEach(function(o) { t += '• ' + o.drink + ' - ' + o.price + ' บาท\n'; total += o.price; });
   t += '\nรวม: ' + total + ' บาท';
+  t += '\n─────────────────\n';
+  t += '0. กลับหน้าหลัก';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 

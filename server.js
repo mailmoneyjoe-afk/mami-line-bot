@@ -104,10 +104,25 @@ async function handleEvent(event) {
   
   // ===== หน้าหลัก =====
   if (state === 'main') {
-    // เมนูหลัก 1-5
+    // เมนูหลัก 1-5 หรือ ตัวอักษร
     if (!isNaN(num) && num >= 1 && num <= 5) {
       return processMenuSelection(num, replyToken, userId, userName);
     }
+    
+    // ตัวอักษรภาษาอังกฤษ
+    var lowerText = text.toLowerCase();
+    if (lowerText === 'm') return processMenuSelection(1, replyToken, userId, userName);
+    if (lowerText === 'p') return processMenuSelection(2, replyToken, userId, userName);
+    if (lowerText === 'o') return processMenuSelection(3, replyToken, userId, userName);
+    if (lowerText === 'c') return processMenuSelection(4, replyToken, userId, userName);
+    if (lowerText === 'h') return processMenuSelection(5, replyToken, userId, userName);
+    
+    // ตัวอักษรภาษาไทย
+    if (text === 'ม') return processMenuSelection(1, replyToken, userId, userName);
+    if (text === 'ร') return processMenuSelection(2, replyToken, userId, userName);
+    if (text === 'อ') return processMenuSelection(3, replyToken, userId, userName);
+    if (text === 'ต') return processMenuSelection(4, replyToken, userId, userName);
+    if (text === 'ป') return processMenuSelection(5, replyToken, userId, userName);
   }
   
   // ===== หน้าสั่งซื้อ =====
@@ -116,8 +131,8 @@ async function handleEvent(event) {
     if (!isNaN(num) && num >= 1 && num <= 14) {
       return processOrderByNum(num, replyToken, userName, userId);
     }
-    // กลับหน้าหลัก
-    if (num === 0) {
+    // กลับหน้าหลัก (0, B, b, ก)
+    if (num === 0 || text === 'b' || text === 'B' || text === 'ก') {
       userState[userId] = 'main';
       return replyMainMenu(replyToken, userName);
     }
@@ -181,12 +196,12 @@ async function replyMainMenu(replyToken, userName) {
   var t = '☕ Welcome, ' + userName + '!\n\n';
   t += 'Main Menu\n';
   t += '─────────────────\n';
-  t += '1. Menu\n';
-  t += '2. Price\n';
-  t += '3. Order\n';
-  t += '4. Contact\n';
-  t += '5. History\n';
-  t += '\n💬 Enter number 1-5';
+  t += '1. Menu (M/ม)\n';
+  t += '2. Price (P/ร)\n';
+  t += '3. Order (O/อ)\n';
+  t += '4. Contact (C/ต)\n';
+  t += '5. History (H/ป)\n';
+  t += '\n💬 Enter number or letter';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 

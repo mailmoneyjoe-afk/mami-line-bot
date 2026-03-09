@@ -178,15 +178,15 @@ async function processMenuSelection(num, replyToken, userId, userName) {
 }
 
 async function replyMainMenu(replyToken, userName) {
-  var t = '☕ สวัสดีค่ะ ' + userName + '!\n\n';
-  t += 'หน้าหลัก\n';
+  var t = '☕ Welcome, ' + userName + '!\n\n';
+  t += 'Main Menu\n';
   t += '─────────────────\n';
-  t += '1. 📋 เมนูเครื่องดื่ม\n';
-  t += '2. 💰 ราคา\n';
-  t += '3. 🛒 สั่งซื้อ\n';
-  t += '4. 📞 ติดต่อร้าน\n';
-  t += '5. 📜 ประวัติการสั่ง\n';
-  t += '\n💬 พิมพ์เลข 1-5';
+  t += '1. Menu\n';
+  t += '2. Price\n';
+  t += '3. Order\n';
+  t += '4. Contact\n';
+  t += '5. History\n';
+  t += '\n💬 Enter number 1-5';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 

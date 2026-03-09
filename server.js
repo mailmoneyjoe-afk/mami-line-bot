@@ -125,7 +125,7 @@ async function handleEvent(event) {
   if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
   
   // Admin command - ต้องเป็น admin เท่านั้น
-  if (text === 'admin') {
+  if (text === 'admin' || text === 'export') {
     if (isAdmin(userId)) {
       return replyAdmin(replyToken);
     } else {

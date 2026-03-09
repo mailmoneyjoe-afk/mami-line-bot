@@ -36,6 +36,9 @@ const menu = [
   { num: 14, name: 'ฟรัปปูชิโน', price: 70 }
 ];
 
+// สถานะของผู้ใช้
+var userState = {};
+
 // โหลดข้อมูลจากไฟล์
 var orders = [];
 function loadOrders() {
@@ -93,38 +96,34 @@ async function handleEvent(event) {
     userName = profile.displayName;
   } catch(e) {}
   
+  // ตรวจสอบสถานะผู้ใช้
+  var state = userState[userId] || 'main';
+  
   // แปลงเป็นตัวเลข
   var num = parseInt(text);
   
-  // ถ้าเป็นตัวเลข 1-14 = สั่งเครื่องดื่ม
-  if (!isNaN(num) && num >= 1 && num <= 14) {
-    return processOrderByNum(num, replyToken, userName);
-  }
-  
-  // ถ้าเป็นตัวเลข 101-105 = คำสั่งพิเศษ
-  if (!isNaN(num) && num >= 101 && num <= 105) {
-    return processCommand(num, replyToken, userName);
-  }
-  
-  // ถ้าพิมพ์ชื่อเครื่องดื่มโดยตรง
-  var drink = null;
-  for (var i = 0; i < menu.length; i++) {
-    if (menu[i].name.toLowerCase().includes(text.toLowerCase())) {
-      drink = menu[i];
-      break;
+  // ===== หน้าหลัก =====
+  if (state === 'main') {
+    // เมนูหลัก 1-5
+    if (!isNaN(num) && num >= 1 && num <= 5) {
+      return processMenuSelection(num, replyToken, userId, userName);
     }
   }
-  if (drink) return addOrder(drink, replyToken, userName);
   
-  // คำสั่งอื่นๆ
-  if (text === 'เมนู' || text === 'menu') return replyMenu(replyToken);
-  if (text === 'ราคา' || text === 'price') return replyPrice(replyToken);
-  if (text === 'สั่งซื้อ' || text === 'order' || text === 'สั่ง') return replyStartOrder(replyToken, userName);
-  if (text.startsWith('สั่ง ')) return processOrder(text, replyToken, userName);
-  if (text === 'ติดต่อ' || text === 'contact') return replyContact(replyToken);
-  if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
+  // ===== หน้าสั่งซื้อ =====
+  if (state === 'ordering') {
+    // สั่งเครื่องดื่ม 1-14
+    if (!isNaN(num) && num >= 1 && num <= 14) {
+      return processOrderByNum(num, replyToken, userName, userId);
+    }
+    // กลับหน้าหลัก
+    if (num === 0) {
+      userState[userId] = 'main';
+      return replyMainMenu(replyToken, userName);
+    }
+  }
   
-  // Admin command - ต้องเป็น admin เท่านั้น
+  // ===== Admin command =====
   if (text === 'admin' || text === 'export') {
     if (isAdmin(userId)) {
       return replyAdmin(replyToken);
@@ -136,7 +135,45 @@ async function handleEvent(event) {
     }
   }
   
-  // Default: แสดงเมนูหลัก
+  // ===== คำสั่งพิเศษ =====
+  if (text === 'เมนู' || text === 'menu') {
+    userState[userId] = 'main';
+    return replyMenu(replyToken);
+  }
+  if (text === 'ราคา' || text === 'price') {
+    userState[userId] = 'main';
+    return replyPrice(replyToken);
+  }
+  if (text === 'สั่งซื้อ' || text === 'order' || text === 'สั่ง') {
+    userState[userId] = 'ordering';
+    return replyStartOrder(replyToken, userName);
+  }
+  if (text.startsWith('สั่ง ')) {
+    return processOrder(text, replyToken, userName, userId);
+  }
+  if (text === 'ติดต่อ' || text === 'contact') {
+    userState[userId] = 'main';
+    return replyContact(replyToken);
+  }
+  if (text === 'ประวัติ' || text === 'history') {
+    userState[userId] = 'main';
+    return replyHistory(replyToken, userName);
+  }
+  
+  // Default: กลับหน้าหลัก
+  userState[userId] = 'main';
+  return replyMainMenu(replyToken, userName);
+}
+
+async function processMenuSelection(num, replyToken, userId, userName) {
+  if (num === 1) return replyMenu(replyToken);
+  if (num === 2) return replyPrice(replyToken);
+  if (num === 3) {
+    userState[userId] = 'ordering';
+    return replyStartOrder(replyToken, userName);
+  }
+  if (num === 4) return replyContact(replyToken);
+  if (num === 5) return replyHistory(replyToken, userName);
   return replyMainMenu(replyToken, userName);
 }
 
@@ -151,15 +188,6 @@ async function replyMainMenu(replyToken, userName) {
   t += '5. 📜 ประวัติการสั่ง\n';
   t += '\n💬 พิมพ์เลข 1-5';
   return client.replyMessage(replyToken, { type: 'text', text: t });
-}
-
-async function processCommand(num, replyToken, userName) {
-  if (num === 101) return replyMenu(replyToken);
-  if (num === 102) return replyPrice(replyToken);
-  if (num === 103) return replyStartOrder(replyToken, userName);
-  if (num === 104) return replyContact(replyToken);
-  if (num === 105) return replyHistory(replyToken, userName);
-  return replyMainMenu(replyToken, userName);
 }
 
 async function replyMenu(replyToken) {
@@ -205,7 +233,7 @@ async function replyStartOrder(replyToken, userName) {
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
-async function processOrder(text, replyToken, userName) {
+async function processOrder(text, replyToken, userName, userId) {
   var drinkName = text.replace('สั่ง ', '').trim();
   var drink = null;
   for (var i = 0; i < menu.length; i++) {
@@ -216,21 +244,19 @@ async function processOrder(text, replyToken, userName) {
   }
   if (!drink) return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
   
-  return addOrder(drink, replyToken, userName);
+  return addOrder(drink, replyToken, userName, userId);
 }
 
-async function processOrderByNum(num, replyToken, userName) {
+async function processOrderByNum(num, replyToken, userName, userId) {
   var drink = menu.find(function(m) { return m.num === num; });
   if (!drink) {
-    // ถ้าไม่พบในเมนู ให้กลับหน้าหลัก
-    if (num === 0) return replyMainMenu(replyToken, userName);
     return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
   }
   
-  return addOrder(drink, replyToken, userName);
+  return addOrder(drink, replyToken, userName, userId);
 }
 
-async function addOrder(drink, replyToken, userName) {
+async function addOrder(drink, replyToken, userName, userId) {
   var order = { 
     id: orders.length + 1, 
     user: userName, 
@@ -243,6 +269,9 @@ async function addOrder(drink, replyToken, userName) {
   
   // บันทึกลงไฟล์
   saveOrders();
+  
+  // รีเซ็ตสถานะ
+  userState[userId] = 'main';
   
   var t = '✅ รับออร์เดอร์แล้ว!\n\n';
   t += '☕ ' + drink.name + '\n';

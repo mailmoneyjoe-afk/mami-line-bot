@@ -10,22 +10,23 @@ const config = {
 
 const client = new line.Client(config);
 
-const menu = {
-  espresso: { name: 'เอสเปรสโซ', price: 40 },
-  americano: { name: 'อเมริกาโซ', price: 45 },
-  cappuccino: { name: 'คาปูชิโน', price: 50 },
-  latte: { name: 'ลาเต้', price: 50 },
-  mocha: { name: 'มอคชา', price: 55 },
-  greentea: { name: 'ชาเขียว', price: 45 },
-  milktea: { name: 'ชานม', price: 45 },
-  thaitea: { name: 'ชาไทย', price: 40 },
-  'iced-latte': { name: 'ลาเต้เย็น', price: 55 },
-  'iced-americano': { name: 'อเมริกาโซเย็น', price: 50 },
-  'iced-mocha': { name: 'มอคชาเย็น', price: 60 },
-  'iced-greentea': { name: 'ชาเขียวเย็น', price: 50 },
-  milkshake: { name: 'มิลค์เชค', price: 65 },
-  frappuccino: { name: 'ฟรัปปูชิโน', price: 70 }
-};
+// เมนูแบบตัวเลข
+const menu = [
+  { num: 1, name: 'เอสเปรสโซ', price: 40 },
+  { num: 2, name: 'อเมริกาโซ', price: 45 },
+  { num: 3, name: 'คาปูชิโน', price: 50 },
+  { num: 4, name: 'ลาเต้', price: 50 },
+  { num: 5, name: 'มอคชา', price: 55 },
+  { num: 6, name: 'ชาเขียว', price: 45 },
+  { num: 7, name: 'ชานม', price: 45 },
+  { num: 8, name: 'ชาไทย', price: 40 },
+  { num: 9, name: 'ลาเต้เย็น', price: 55 },
+  { num: 10, name: 'อเมริกาโซเย็น', price: 50 },
+  { num: 11, name: 'มอคชาเย็น', price: 60 },
+  { num: 12, name: 'ชาเขียวเย็น', price: 50 },
+  { num: 13, name: 'มิลค์เชค', price: 65 },
+  { num: 14, name: 'ฟรัปปูชิโน', price: 70 }
+];
 
 const orders = [];
 const app = express();
@@ -59,6 +60,10 @@ async function handleEvent(event) {
   if (text === 'ติดต่อ' || text === 'contact') return replyContact(replyToken);
   if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
   
+  // รองรับการสั่งแบบตัวเลข
+  var num = parseInt(text);
+  if (!isNaN(num) && num >= 1 && num <= 14) return processOrderByNum(num, replyToken, userName);
+  
   return client.replyMessage(replyToken, {
     type: 'text',
     text: '☕ สวัสดีค่ะ ' + userName + '!\n\n• เมนู - ดูเมนู\n• ราคา - ดูราคา\n• สั่ง - สั่งซื้อ\n• ติดต่อ - ติดต่อร้าน\n• ประวัติ - ดูประวัติ'
@@ -67,14 +72,18 @@ async function handleEvent(event) {
 
 async function replyMenu(replyToken) {
   var t = '☕ เมนูร้านกาแฟ\n\n';
-  for (var key in menu) { t += menu[key].name + ' - ' + menu[key].price + ' บาท\n'; }
-  t += '\n💬 พิมพ์ "สั่ง ชื่อเครื่องดื่ม"';
+  menu.forEach(function(m) {
+    t += m.num + '. ' + m.name + ' - ' + m.price + ' บาท\n';
+  });
+  t += '\n💬 พิมพ์เลข 1-14 เพื่อสั่ง';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
 async function replyPrice(replyToken) {
   var t = '💰 ราคา\n\n';
-  for (var key in menu) { t += menu[key].name + ': ' + menu[key].price + ' บาท\n'; }
+  menu.forEach(function(m) {
+    t += m.num + '. ' + m.name + ': ' + m.price + ' บาท\n';
+  });
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
@@ -83,20 +92,36 @@ async function replyContact(replyToken) {
 }
 
 async function replyStartOrder(replyToken, userName) {
-  return client.replyMessage(replyToken, { type: 'text', text: '🛒 สั่งซื้อ\n\nพิมพ์ "สั่ง ลาเต้"' });
+  var t = '🛒 สั่งซื้อ\n\n';
+  menu.forEach(function(m) {
+    t += m.num + '. ' + m.name + ' - ' + m.price + ' บาท\n';
+  });
+  t += '\n💬 พิมพ์เลขที่ต้องการ (1-14)';
+  return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
 async function processOrder(text, replyToken, userName) {
   var drinkName = text.replace('สั่ง ', '').trim();
   var drink = null;
-  for (var key in menu) {
-    if (menu[key].name.toLowerCase().includes(drinkName.toLowerCase())) {
-      drink = menu[key];
+  for (var i = 0; i < menu.length; i++) {
+    if (menu[i].name.toLowerCase().includes(drinkName.toLowerCase())) {
+      drink = menu[i];
       break;
     }
   }
   if (!drink) return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
   
+  return addOrder(drink, replyToken, userName);
+}
+
+async function processOrderByNum(num, replyToken, userName) {
+  var drink = menu.find(function(m) { return m.num === num; });
+  if (!drink) return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
+  
+  return addOrder(drink, replyToken, userName);
+}
+
+async function addOrder(drink, replyToken, userName) {
   var order = { id: orders.length + 1, user: userName, drink: drink.name, price: drink.price, time: new Date().toLocaleString('th') };
   orders.push(order);
   

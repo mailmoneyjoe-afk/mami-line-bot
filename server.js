@@ -15,6 +15,9 @@ const client = new line.Client(config);
 // ไฟล์เก็บข้อมูล
 const DATA_FILE = 'D:/backup_JijiClaw/line_bot/orders.json';
 
+// Admin User IDs (ผู้ที่สามารถใช้คำสั่ง admin ได้)
+const ADMIN_USER_IDS = ['U6642e63a6f7d367f029fbcaaeb9c1382'];
+
 // เมนูแบบตัวเลข
 const menu = [
   { num: 1, name: 'เอสเปรสโซ', price: 40 },
@@ -56,6 +59,11 @@ function saveOrders() {
   } catch(e) {
     console.log('Error saving orders:', e.message);
   }
+}
+
+// ตรวจสอบว่าเป็น admin หรือไม่
+function isAdmin(userId) {
+  return ADMIN_USER_IDS.indexOf(userId) !== -1;
 }
 
 // โหลดตอนเริ่มต้น
@@ -115,7 +123,18 @@ async function handleEvent(event) {
   if (text.startsWith('สั่ง ')) return processOrder(text, replyToken, userName);
   if (text === 'ติดต่อ' || text === 'contact') return replyContact(replyToken);
   if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
-  if (text === 'admin') return replyAdmin(replyToken);
+  
+  // Admin command - ต้องเป็น admin เท่านั้น
+  if (text === 'admin') {
+    if (isAdmin(userId)) {
+      return replyAdmin(replyToken);
+    } else {
+      return client.replyMessage(replyToken, { 
+        type: 'text', 
+        text: '❌ ไม่มีสิทธิ์เข้าถึงค่ะ' 
+      });
+    }
+  }
   
   // Default: แสดงเมนูหลัก
   return replyMainMenu(replyToken, userName);
@@ -253,7 +272,7 @@ async function replyHistory(replyToken, userName) {
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
-// Admin: ดูข้อมูลทั้งหมด
+// Admin: ดูข้อมูลทั้งหมด (เฉพาะ admin เท่านั้น)
 async function replyAdmin(replyToken) {
   var t = '📊 ข้อมูลทั้งหมด\n\n';
   t += 'จำนวนออร์เดอร์: ' + orders.length + '\n\n';
@@ -277,4 +296,5 @@ var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() { 
   console.log('Coffee Bot on ' + PORT);
   console.log('Data file: ' + DATA_FILE);
+  console.log('Admin user IDs:', ADMIN_USER_IDS);
 });

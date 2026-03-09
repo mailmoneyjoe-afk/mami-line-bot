@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
-const fs = require('fs');
+const Database = require('better-sqlite3');
 const path = require('path');
 
 const config = {
@@ -12,8 +12,37 @@ const config = {
 
 const client = new line.Client(config);
 
-// ไฟล์เก็บข้อมูล
-const DATA_FILE = 'D:/backup_JijiClaw/line_bot/orders.json';
+// 📦 Database Setup
+let db;
+const DB_FILE = path.join(__dirname, 'data', 'orders.db');
+
+function initDatabase() {
+  try {
+    // Create data directory if not exists
+    const dataDir = path.join(__dirname, 'data');
+    if (!require('fs').existsSync(dataDir)) {
+      require('fs').mkdirSync(dataDir);
+    }
+    
+    db = new Database(DB_FILE);
+    
+    // Create table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        user_name TEXT,
+        drink TEXT,
+        price INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    console.log('✅ Database initialized:', DB_FILE);
+  } catch(e) {
+    console.log('❌ Database error:', e.message);
+  }
+}
 
 // Admin User IDs (ผู้ที่สามารถใช้คำสั่ง admin ได้)
 const ADMIN_USER_IDS = ['U6642e63a6f7d367f029fbcaaeb9c1382'];
@@ -39,38 +68,13 @@ const menu = [
 // สถานะของผู้ใช้
 var userState = {};
 
-// โหลดข้อมูลจากไฟล์
-var orders = [];
-function loadOrders() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      var data = fs.readFileSync(DATA_FILE, 'utf8');
-      orders = JSON.parse(data);
-      console.log('Loaded ' + orders.length + ' orders from file');
-    }
-  } catch(e) {
-    console.log('Error loading orders:', e.message);
-    orders = [];
-  }
-}
-
-// บันทึกข้อมูลลงไฟล์
-function saveOrders() {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(orders, null, 2), 'utf8');
-    console.log('Saved ' + orders.length + ' orders to file');
-  } catch(e) {
-    console.log('Error saving orders:', e.message);
-  }
-}
-
 // ตรวจสอบว่าเป็น admin หรือไม่
 function isAdmin(userId) {
   return ADMIN_USER_IDS.indexOf(userId) !== -1;
 }
 
-// โหลดตอนเริ่มต้น
-loadOrders();
+// Init Database
+initDatabase();
 
 const app = express();
 
@@ -172,7 +176,7 @@ async function handleEvent(event) {
   }
   if (text === 'ประวัติ' || text === 'history') {
     userState[userId] = 'main';
-    return replyHistory(replyToken, userName);
+    return replyHistory(replyToken, userName, userId);
   }
   
   // Default: กลับหน้าหลัก
@@ -188,7 +192,7 @@ async function processMenuSelection(num, replyToken, userId, userName) {
     return replyStartOrder(replyToken, userName);
   }
   if (num === 4) return replyContact(replyToken);
-  if (num === 5) return replyHistory(replyToken, userName);
+  if (num === 5) return replyHistory(replyToken, userName, userId);
   return replyMainMenu(replyToken, userName);
 }
 
@@ -272,18 +276,17 @@ async function processOrderByNum(num, replyToken, userName, userId) {
 }
 
 async function addOrder(drink, replyToken, userName, userId) {
-  var order = { 
-    id: orders.length + 1, 
-    user: userName, 
-    drink: drink.name, 
-    price: drink.price, 
-    time: new Date().toLocaleString('th'),
-    timestamp: new Date().toISOString()
-  };
-  orders.push(order);
-  
-  // บันทึกลงไฟล์
-  saveOrders();
+  // บันทึกลง Database (SQLite)
+  try {
+    var stmt = db.prepare(`
+      INSERT INTO orders (user_id, user_name, drink, price)
+      VALUES (?, ?, ?, ?)
+    `);
+    var result = stmt.run(userId, userName, drink.name, drink.price);
+    console.log('✅ Order saved to DB:', result.lastInsertRowid);
+  } catch(e) {
+    console.log('❌ Save order error:', e.message);
+  }
   
   // รีเซ็ตสถานะ
   userState[userId] = 'main';
@@ -295,50 +298,84 @@ async function addOrder(drink, replyToken, userName, userId) {
   t += 'ขอบคุณค่ะ 🙏\n';
   t += '0. กลับหน้าหลัก';
   
-  return client.replyMessage(replyToken, { type: 'text', text: t });
-}
-
-async function replyHistory(replyToken, userName) {
-  var userOrders = orders.filter(function(o) { return o.user === userName; });
-  if (userOrders.length === 0) {
-    var t = '📜 ประวัติการสั่ง\n\n';
-    t += 'ยังไม่เคยสั่งเลยค่ะ\n';
-    t += '\n─────────────────\n';
-    t += '0. กลับหน้าหลัก';
-    return client.replyMessage(replyToken, { type: 'text', text: t });
+  // แจ้ง Admin
+  try {
+    await client.pushMessage(ADMIN_USER_IDS[0], {
+      type: 'text',
+      text: '🛒 ออร์เดอร์ใหม่!\n\n👤 ' + userName + '\n☕ ' + drink.name + '\n💵 ' + drink.price + ' บาท'
+    });
+  } catch(e) {
+    console.log('Admin notify error:', e.message);
   }
-  var t = '📜 ประวัติการสั่ง\n';
-  var total = 0;
-  userOrders.slice(-5).forEach(function(o) { t += '• ' + o.drink + ' - ' + o.price + ' บาท\n'; total += o.price; });
-  t += '\nรวม: ' + total + ' บาท';
-  t += '\n─────────────────\n';
-  t += '0. กลับหน้าหลัก';
+  
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
-// Admin: ดูข้อมูลทั้งหมด (เฉพาะ admin เท่านั้น)
+async function replyHistory(replyToken, userName, userId) {
+  try {
+    var stmt = db.prepare(`
+      SELECT * FROM orders 
+      WHERE user_id = ? 
+      ORDER BY created_at DESC 
+      LIMIT 5
+    `);
+    var userOrders = stmt.all(userId);
+    
+    if (userOrders.length === 0) {
+      return client.replyMessage(replyToken, { 
+        type: 'text', 
+        text: '📜 ยังไม่มีประวัติการสั่งซื้อ\n\n0. กลับหน้าหลัก' 
+      });
+    }
+    
+    var t = '📜 ประวัติการสั่งซื้อ\n\n';
+    userOrders.forEach(function(o, i) {
+      t += (i+1) + '. ' + o.drink + ' - ' + o.price + ' บาท\n';
+      t += '   📅 ' + o.created_at + '\n';
+    });
+    t += '\n0. กลับหน้าหลัก';
+    
+    return client.replyMessage(replyToken, { type: 'text', text: t });
+  } catch(e) {
+    console.log('History error:', e.message);
+    return client.replyMessage(replyToken, { 
+      type: 'text', 
+      text: '❌ เกิดข้อผิดพลาด\n\n0. กลับหน้าหลัก' 
+    });
+  }
+}
+
 async function replyAdmin(replyToken) {
-  var t = '📊 ข้อมูลทั้งหมด\n\n';
-  t += 'จำนวนออร์เดอร์: ' + orders.length + '\n\n';
-  
-  // สรุปรายได้
-  var total = 0;
-  orders.forEach(function(o) { total += o.price; });
-  t += 'รายได้รวม: ' + total + ' บาท\n';
-  t += '\n────────── ล่าสุด ──────────\n';
-  
-  orders.slice(-10).reverse().forEach(function(o) {
-    t += o.time + '\n';
-    t += o.user + ': ' + o.drink + ' - ' + o.price + ' บาท\n';
+  try {
+    var stmt = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 20');
+    var allOrders = stmt.all();
+    
+    var t = '📊 รายงานออร์เดอร์ทั้งหมด\n\n';
     t += '─────────────────\n';
-  });
-  
-  return client.replyMessage(replyToken, { type: 'text', text: t });
+    
+    var total = 0;
+    allOrders.forEach(function(o) {
+      t += o.created_at + ' | ' + o.user_name + ' | ' + o.drink + ' | ' + o.price + ' บาท\n';
+      total += o.price;
+    });
+    
+    t += '─────────────────\n';
+    t += '💰 รวม: ' + total + ' บาท (' + allOrders.length + ' รายการ)';
+    
+    return client.replyMessage(replyToken, { type: 'text', text: t });
+  } catch(e) {
+    return client.replyMessage(replyToken, { 
+      type: 'text', 
+      text: '❌ Error: ' + e.message 
+    });
+  }
 }
 
-var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { 
-  console.log('Coffee Bot on ' + PORT);
-  console.log('Data file: ' + DATA_FILE);
-  console.log('Admin user IDs:', ADMIN_USER_IDS);
+app.get('/', function(req, res) {
+  res.send('☕ LINE Coffee Shop Bot Running!');
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('🤖 LINE Coffee Shop Bot v2 running on port ' + PORT);
 });

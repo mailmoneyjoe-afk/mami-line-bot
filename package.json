@@ -1,7 +1,7 @@
 {
-  "name": "mami-master-creator",
-  "version": "1.0.0",
-  "description": "LINE Bot for creating AI Assistants",
+  "name": "mami-coffee-shop",
+  "version": "2.0.0",
+  "description": "LINE Coffee Shop Bot with SQLite",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.0",
     "express": "^4.18.2",
     "@line/bot-sdk": "^7.5.0"

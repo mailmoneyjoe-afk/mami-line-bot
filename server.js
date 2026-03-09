@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
+const fs = require('fs');
+const path = require('path');
 
 const config = {
   channelId: process.env.LINE_CHANNEL_ID,
@@ -9,6 +11,9 @@ const config = {
 };
 
 const client = new line.Client(config);
+
+// ไฟล์เก็บข้อมูล
+const DATA_FILE = 'D:/backup_JijiClaw/line_bot/orders.json';
 
 // เมนูแบบตัวเลข
 const menu = [
@@ -28,7 +33,34 @@ const menu = [
   { num: 14, name: 'ฟรัปปูชิโน', price: 70 }
 ];
 
-const orders = [];
+// โหลดข้อมูลจากไฟล์
+var orders = [];
+function loadOrders() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      var data = fs.readFileSync(DATA_FILE, 'utf8');
+      orders = JSON.parse(data);
+      console.log('Loaded ' + orders.length + ' orders from file');
+    }
+  } catch(e) {
+    console.log('Error loading orders:', e.message);
+    orders = [];
+  }
+}
+
+// บันทึกข้อมูลลงไฟล์
+function saveOrders() {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(orders, null, 2), 'utf8');
+    console.log('Saved ' + orders.length + ' orders to file');
+  } catch(e) {
+    console.log('Error saving orders:', e.message);
+  }
+}
+
+// โหลดตอนเริ่มต้น
+loadOrders();
+
 const app = express();
 
 app.post('/webhook', line.middleware(config), function(req, res) {
@@ -83,6 +115,7 @@ async function handleEvent(event) {
   if (text.startsWith('สั่ง ')) return processOrder(text, replyToken, userName);
   if (text === 'ติดต่อ' || text === 'contact') return replyContact(replyToken);
   if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
+  if (text === 'admin') return replyAdmin(replyToken);
   
   // Default: แสดงเมนูหลัก
   return replyMainMenu(replyToken, userName);
@@ -179,8 +212,18 @@ async function processOrderByNum(num, replyToken, userName) {
 }
 
 async function addOrder(drink, replyToken, userName) {
-  var order = { id: orders.length + 1, user: userName, drink: drink.name, price: drink.price, time: new Date().toLocaleString('th') };
+  var order = { 
+    id: orders.length + 1, 
+    user: userName, 
+    drink: drink.name, 
+    price: drink.price, 
+    time: new Date().toLocaleString('th'),
+    timestamp: new Date().toISOString()
+  };
   orders.push(order);
+  
+  // บันทึกลงไฟล์
+  saveOrders();
   
   var t = '✅ รับออร์เดอร์แล้ว!\n\n';
   t += '☕ ' + drink.name + '\n';
@@ -210,5 +253,28 @@ async function replyHistory(replyToken, userName) {
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
+// Admin: ดูข้อมูลทั้งหมด
+async function replyAdmin(replyToken) {
+  var t = '📊 ข้อมูลทั้งหมด\n\n';
+  t += 'จำนวนออร์เดอร์: ' + orders.length + '\n\n';
+  
+  // สรุปรายได้
+  var total = 0;
+  orders.forEach(function(o) { total += o.price; });
+  t += 'รายได้รวม: ' + total + ' บาท\n';
+  t += '\n────────── ล่าสุด ──────────\n';
+  
+  orders.slice(-10).reverse().forEach(function(o) {
+    t += o.time + '\n';
+    t += o.user + ': ' + o.drink + ' - ' + o.price + ' บาท\n';
+    t += '─────────────────\n';
+  });
+  
+  return client.replyMessage(replyToken, { type: 'text', text: t });
+}
+
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log('Coffee Bot on ' + PORT); });
+app.listen(PORT, function() { 
+  console.log('Coffee Bot on ' + PORT);
+  console.log('Data file: ' + DATA_FILE);
+});

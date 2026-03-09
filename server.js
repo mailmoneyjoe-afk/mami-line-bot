@@ -108,25 +108,23 @@ async function handleEvent(event) {
   
   // ===== หน้าหลัก =====
   if (state === 'main') {
-    // เมนูหลัก 1-5 หรือ ตัวอักษร
-    if (!isNaN(num) && num >= 1 && num <= 5) {
+    // เมนูหลัก 1-4 หรือ ตัวอักษร
+    if (!isNaN(num) && num >= 1 && num <= 4) {
       return processMenuSelection(num, replyToken, userId, userName);
     }
     
     // ตัวอักษรภาษาอังกฤษ
     var lowerText = text.toLowerCase();
     if (lowerText === 'm') return processMenuSelection(1, replyToken, userId, userName);
-    if (lowerText === 'p') return processMenuSelection(2, replyToken, userId, userName);
-    if (lowerText === 'o') return processMenuSelection(3, replyToken, userId, userName);
-    if (lowerText === 'c') return processMenuSelection(4, replyToken, userId, userName);
-    if (lowerText === 'h') return processMenuSelection(5, replyToken, userId, userName);
+    if (lowerText === 'o') return processMenuSelection(2, replyToken, userId, userName);
+    if (lowerText === 'c') return processMenuSelection(3, replyToken, userId, userName);
+    if (lowerText === 'h') return processMenuSelection(4, replyToken, userId, userName);
     
     // ตัวอักษรภาษาไทย
     if (text === 'ม') return processMenuSelection(1, replyToken, userId, userName);
-    if (text === 'ร') return processMenuSelection(2, replyToken, userId, userName);
-    if (text === 'อ') return processMenuSelection(3, replyToken, userId, userName);
-    if (text === 'ต') return processMenuSelection(4, replyToken, userId, userName);
-    if (text === 'ป') return processMenuSelection(5, replyToken, userId, userName);
+    if (text === 'อ') return processMenuSelection(2, replyToken, userId, userName);
+    if (text === 'ต') return processMenuSelection(3, replyToken, userId, userName);
+    if (text === 'ป') return processMenuSelection(4, replyToken, userId, userName);
   }
   
   // ===== หน้าสั่งซื้อ =====
@@ -186,26 +184,24 @@ async function handleEvent(event) {
 
 async function processMenuSelection(num, replyToken, userId, userName) {
   if (num === 1) return replyMenu(replyToken);
-  if (num === 2) return replyPrice(replyToken);
-  if (num === 3) {
+  if (num === 2) {
     userState[userId] = 'ordering';
     return replyStartOrder(replyToken, userName);
   }
-  if (num === 4) return replyContact(replyToken);
-  if (num === 5) return replyHistory(replyToken, userName, userId);
+  if (num === 3) return replyContact(replyToken);
+  if (num === 4) return replyHistory(replyToken, userName, userId);
   return replyMainMenu(replyToken, userName);
 }
 
 async function replyMainMenu(replyToken, userName) {
-  var t = '☕ Welcome, ' + userName + '!\n\n';
-  t += 'Main Menu\n';
+  var t = '☕ ยินดีต้อนรับ, ' + userName + '!\n\n';
+  t += 'เมนูหลัก\n';
   t += '─────────────────\n';
-  t += '1. Menu (M/ม)\n';
-  t += '2. Price (P/ร)\n';
-  t += '3. Order (O/อ)\n';
-  t += '4. Contact (C/ต)\n';
-  t += '5. History (H/ป)\n';
-  t += '\n💬 Enter number or letter';
+  t += '1. เมนูสินค้า (M/ม)\n';
+  t += '2. สั่งซื้อ (O/อ)\n';
+  t += '3. ติดต่อเรา (C/ต)\n';
+  t += '4. ประวัติการสั่ง (H/ป)\n';
+  t += '\n💬 พิมพ์ตัวเลขเพื่อเลือก';
   return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 

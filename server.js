@@ -1,352 +1,117 @@
+require('dotenv').config();
 const express = require('express');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+const line = require('@line/bot-sdk');
 
+const config = {
+  channelId: process.env.LINE_CHANNEL_ID,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken: process.env.LINE_ACCESS_TOKEN
+};
+
+const client = new line.Client(config);
+
+const menu = {
+  espresso: { name: 'เอสเปรสโซ', price: 40 },
+  americano: { name: 'อเมริกาโซ', price: 45 },
+  cappuccino: { name: 'คาปูชิโน', price: 50 },
+  latte: { name: 'ลาเต้', price: 50 },
+  mocha: { name: 'มอคชา', price: 55 },
+  greentea: { name: 'ชาเขียว', price: 45 },
+  milktea: { name: 'ชานม', price: 45 },
+  thaitea: { name: 'ชาไทย', price: 40 },
+  'iced-latte': { name: 'ลาเต้เย็น', price: 55 },
+  'iced-americano': { name: 'อเมริกาโซเย็น', price: 50 },
+  'iced-mocha': { name: 'มอคชาเย็น', price: 60 },
+  'iced-greentea': { name: 'ชาเขียวเย็น', price: 50 },
+  milkshake: { name: 'มิลค์เชค', price: 65 },
+  frappuccino: { name: 'ฟรัปปูชิโน', price: 70 }
+};
+
+const orders = [];
 const app = express();
 
-// ============ CONFIGURATION ============
-const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID;
-const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
-const LINE_USER_ID = process.env.LINE_USER_ID;
-
-// OpenClaw Gateway Configuration
-const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://localhost:3000';
-const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || 'YOUR_GATEWAY_TOKEN';
-
-// ============ JSON FILE STORAGE ============
-const DB_FILE = path.join(__dirname, 'database.json');
-
-function loadDB() {
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    }
-  } catch (e) {
-    console.error('Error loading DB:', e.message);
-  }
-  return { users: {}, bots: [] };
-}
-
-function saveDB(data) {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error('Error saving DB:', e.message);
-  }
-}
-
-let db = loadDB();
-
-// ============ MIDDLEWARE ============
-app.use(express.json());
-
-// Health check
-app.get('/', (req, res) => {
-  res.send('🤖 Mami_LineClaw is running!');
+app.post('/webhook', line.middleware(config), function(req, res) {
+  Promise.all(req.body.events.map(handleEvent))
+    .then(function() { res.end(); })
+    .catch(function(err) {
+      console.error(err);
+      res.status(500).end();
+    });
 });
 
-// ============ LINE WEBHOOK ============
-app.post('/webhook', async (req, res) => {
-  try {
-    const events = req.body.events;
-    
-    if (!events || events.length === 0) {
-      return res.status(200).send('OK');
-    }
-    
-    for (const event of events) {
-      if (event.type === 'message' && event.message && event.message.type === 'text') {
-        await handleTextMessage(event);
-      } else if (event.type === 'follow') {
-        // User added bot as friend
-        await handleFollow(event);
-      }
-    }
-
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Webhook Error:', error);
-    res.status(200).send('OK');
-  }
-});
-
-// ============ LINE API FUNCTIONS ============
-async function replyMessage(replyToken, text) {
-  try {
-    await axios.post('https://api.line.me/v2/bot/message/reply', {
-      replyToken: replyToken,
-      messages: [{ type: 'text', text: text }]
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LINE_ACCESS_TOKEN}`
-      }
-    });
-  } catch (e) {
-    console.error('Reply Error:', e.message);
-  }
-}
-
-async function pushMessage(userId, text) {
-  try {
-    await axios.post('https://api.line.me/v2/bot/message/push', {
-      to: userId,
-      messages: [{ type: 'text', text: text }]
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LINE_ACCESS_TOKEN}`
-      }
-    });
-  } catch (e) {
-    console.error('Push Error:', e.message);
-  }
-}
-
-// ============ EVENT HANDLERS ============
-async function handleFollow(event) {
-  const userId = event.source.userId;
+async function handleEvent(event) {
+  if (event.type !== 'message' || event.message.type !== 'text') return;
   
-  // Register user
-  if (!db.users[userId]) {
-    db.users[userId] = {
-      line_user_id: userId,
-      created_at: new Date().toISOString()
-    };
-    saveDB(db);
-  }
-  
-  await pushMessage(userId, 'สวัสดีค่ะ! 👋\n\nยินดีต้อนรับสู่ Mami_LineClaw!\n\nผมช่วยคุณสร้าง Bot ส่วนตัวได้\n\nพิมพ์ "สร้าง bot" เพื่อเริ่มต้นเลยค่ะ!');
-}
-
-async function handleTextMessage(event) {
   const userId = event.source.userId;
-  const userMessage = event.message && event.message.text ? event.message.text.trim() : '';
+  const text = event.message.text.trim();
   const replyToken = event.replyToken;
-
-  if (!userId || !replyToken) return;
-
-  // Get user from database
-  if (!db.users[userId]) {
-    db.users[userId] = {
-      line_user_id: userId,
-      created_at: new Date().toISOString()
-    };
-    saveDB(db);
-  }
-
-  const user = db.users[userId];
-  const userBots = db.bots.filter(b => b.user_id === userId);
-
-  const isCreatingBot = userMessage.toLowerCase().includes('สร้าง') && userMessage.toLowerCase().includes('bot');
-  const isListingBots = userMessage.toLowerCase().includes('รายชื่อ') || userMessage.toLowerCase().includes('list');
-  const isHelp = userMessage.toLowerCase().includes('ช่วย') || userMessage.toLowerCase() === '?';
-  const isCancel = userMessage.toLowerCase().includes('ยกเลิก');
-
-  if (isCreatingBot) {
-    await startBotCreation(userId, replyToken, userId);
-    return;
-  }
-
-  if (isListingBots) {
-    await listBots(replyToken, userBots);
-    return;
-  }
-
-  if (isHelp) {
-    await showHelp(replyToken);
-    return;
-  }
-
-  if (isCancel) {
-    await cancelAction(replyToken);
-    return;
-  }
-
-  // Check if user is creating a bot (multi-step)
-  const pendingBot = userBots.find(b => !b.bot_name || b.bot_name === '');
-
-  if (pendingBot) {
-    await handleBotCreationFlow(userId, userMessage, replyToken, pendingBot);
-    return;
-  }
-
-  // If user has only ONE bot, forward message to that bot
-  if (userBots.length === 1 && userBots[0].agent_id) {
-    await chatWithBot(userId, userMessage, replyToken, userBots[0]);
-    return;
-  }
-
-  // If user has MULTIPLE bots, ask which one
-  if (userBots.length > 1) {
-    const botNames = userBots.map(b => `• ${b.bot_name}`).join('\n');
-    await replyMessage(replyToken, `คุณมีหลาย Bot ค่ะ:\n\n${botNames}\n\nพิมพ์ชื่อ Bot ที่ต้องการคุย หรือพิมพ์ "รายชื่อ" เพื่อดูทั้งหมด`);
-    return;
-  }
-
-  // No bots yet
-  await replyMessage(replyToken, 'คุณยังไม่มี Bot ค่ะ!\n\nพิมพ์ "สร้าง bot" เพื่อสร้าง Bot ส่วนตัวของคุณ');
-}
-
-// ============ BOT CREATION FLOW ============
-async function startBotCreation(userId, replyToken, dbUserId) {
-  // Check max bots per user
-  const botCount = db.bots.filter(b => b.user_id === dbUserId).length;
-  if (botCount >= 10) {
-    await replyMessage(replyToken, 'คุณสร้าง Bot ได้สูงสุด 10 ตัวแล้วค่ะ!');
-    return;
-  }
-
-  // Create pending bot record
-  const newBot = {
-    id: Date.now(),
-    user_id: dbUserId,
-    bot_name: '',
-    bot_description: '',
-    agent_id: '',
-    created_at: new Date().toISOString()
-  };
-  db.bots.push(newBot);
-  saveDB(db);
-
-  await replyMessage(replyToken, '🤖 สร้าง Bot ใหม่\n\nกรุณาตั้งชื่อ Bot (ภาษาอังกฤษ):\nเช่น Mami_Sales, Jo_Assistant');
-}
-
-async function handleBotCreationFlow(userId, userMessage, replyToken, pendingBot) {
-  const botIndex = db.bots.findIndex(b => b.id === pendingBot.id);
-  if (botIndex === -1) return;
-
-  // Step 1: Bot name
-  if (!pendingBot.bot_name || pendingBot.bot_name === '') {
-    const botName = userMessage.trim();
-    
-    // Validate name
-    if (!/^[A-Za-z0-9_]+$/.test(botName)) {
-      await replyMessage(replyToken, 'ชื่อ Bot ต้องเป็นภาษาอังกฤษและตัวเลขเท่านั้นค่ะ ไม่มีช่องว่าง\nเช่น Mami_Sales');
-      return;
-    }
-
-    // Check duplicate name
-    const existing = db.bots.find(b => b.bot_name === botName);
-    if (existing) {
-      await replyMessage(replyToken, 'ชื่อ Bot นี้มีคนใช้แล้วค่ะ ลองชื่ออื่น');
-      return;
-    }
-
-    // Update bot name and ask for description
-    db.bots[botIndex].bot_name = botName;
-    saveDB(db);
-
-    await replyMessage(replyToken, `📝 ชื่อ: ${botName}\n\nกรุณาบอกคำอธิบาย Bot (วัตถุประสงค์):\nเช่น ผู้ช่วยดูแลลูกค้า`);
-    return;
-  }
-
-  // Step 2: Bot description
-  if (!pendingBot.bot_description) {
-    const description = userMessage.trim();
-    db.bots[botIndex].bot_description = description;
-    saveDB(db);
-
-    // Create real agent in OpenClaw
-    const agentId = await createOpenClawAgent(pendingBot.bot_name, description);
-
-    if (agentId) {
-      // Save agent_id to database
-      db.bots[botIndex].agent_id = agentId;
-      saveDB(db);
-
-      await replyMessage(replyToken, `🎉 สร้าง Bot สำเร็จ!\n\n🤖 ชื่อ: ${pendingBot.bot_name}\n📋 คำอธิบาย: ${description}\n🆔 Agent ID: ${agentId}\n\nตอนนี้คุณสามารถคุยกับ ${pendingBot.bot_name} ได้เลย!\n\nพิมพ์ "รายชื่อ" เพื่อดู Bot ทั้งหมด`);
-    } else {
-      await replyMessage(replyToken, `⚠️ Bot "${pendingBot.bot_name}" ถูกสร้างแต่ยังไม่สามารถเชื่อมต่อ OpenClaw ได้\n\nลองติดต่อผู้ดูแลระบบ`);
-    }
-    return;
-  }
-}
-
-// ============ OPENCLAW INTEGRATION ============
-async function createOpenClawAgent(botName, description) {
+  
+  var userName = 'ลูกค้า';
   try {
-    const response = await axios.post(`${OPENCLAW_GATEWAY_URL}/api/agents`, {
-      label: botName,
-      type: 'subagent',
-      systemPrompt: `You are ${botName}. Your purpose: ${description}. You are a helpful AI assistant. Respond in Thai language.`,
-      parentSession: 'line-bot'
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENCLAW_GATEWAY_TOKEN}`
-      },
-      timeout: 30000
-    });
+    var profile = await client.getProfile(userId);
+    userName = profile.displayName;
+  } catch(e) {}
+  
+  if (text === 'เมนู' || text === 'menu') return replyMenu(replyToken);
+  if (text === 'ราคา' || text === 'price') return replyPrice(replyToken);
+  if (text === 'สั่งซื้อ' || text === 'order' || text === 'สั่ง') return replyStartOrder(replyToken, userName);
+  if (text.startsWith('สั่ง ')) return processOrder(text, replyToken, userName);
+  if (text === 'ติดต่อ' || text === 'contact') return replyContact(replyToken);
+  if (text === 'ประวัติ' || text === 'history') return replyHistory(replyToken, userName);
+  
+  return client.replyMessage(replyToken, {
+    type: 'text',
+    text: '☕ สวัสดีค่ะ ' + userName + '!\n\n• เมนู - ดูเมนู\n• ราคา - ดูราคา\n• สั่ง - สั่งซื้อ\n• ติดต่อ - ติดต่อร้าน\n• ประวัติ - ดูประวัติ'
+  });
+}
 
-    console.log('Agent created:', response.data);
-    return response.data.agentId || response.data.id || `agent:${Date.now()}`;
-  } catch (error) {
-    console.error('Failed to create agent:', error.message);
-    // Return a temporary ID if OpenClaw is not available
-    return `temp_agent:${Date.now()}`;
+async function replyMenu(replyToken) {
+  var t = '☕ เมนูร้านกาแฟ\n\n';
+  for (var key in menu) { t += menu[key].name + ' - ' + menu[key].price + ' บาท\n'; }
+  t += '\n💬 พิมพ์ "สั่ง ชื่อเครื่องดื่ม"';
+  return client.replyMessage(replyToken, { type: 'text', text: t });
+}
+
+async function replyPrice(replyToken) {
+  var t = '💰 ราคา\n\n';
+  for (var key in menu) { t += menu[key].name + ': ' + menu[key].price + ' บาท\n'; }
+  return client.replyMessage(replyToken, { type: 'text', text: t });
+}
+
+async function replyContact(replyToken) {
+  return client.replyMessage(replyToken, { type: 'text', text: '📞 ติดต่อร้าน\n\n📍 กรุงเทพ\n📞 02-xxx-xxxx\n⏰ 07:00-21:00' });
+}
+
+async function replyStartOrder(replyToken, userName) {
+  return client.replyMessage(replyToken, { type: 'text', text: '🛒 สั่งซื้อ\n\nพิมพ์ "สั่ง ลาเต้"' });
+}
+
+async function processOrder(text, replyToken, userName) {
+  var drinkName = text.replace('สั่ง ', '').trim();
+  var drink = null;
+  for (var key in menu) {
+    if (menu[key].name.toLowerCase().includes(drinkName.toLowerCase())) {
+      drink = menu[key];
+      break;
+    }
   }
+  if (!drink) return client.replyMessage(replyToken, { type: 'text', text: 'ไม่พบ ลองใหม่นะคะ' });
+  
+  var order = { id: orders.length + 1, user: userName, drink: drink.name, price: drink.price, time: new Date().toLocaleString('th') };
+  orders.push(order);
+  
+  return client.replyMessage(replyToken, { type: 'text', text: '✅ รับออร์เดอร์แล้ว!\n\n☕ ' + drink.name + '\n💵 ' + drink.price + ' บาท\n\nขอบคุณค่ะ 🙏' });
 }
 
-async function chatWithBot(userId, userMessage, replyToken, bot) {
-  try {
-    // Send message to OpenClaw Gateway
-    const response = await axios.post(`${OPENCLAW_GATEWAY_URL}/api/sessions`, {
-      agentId: bot.agent_id,
-      message: userMessage
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENCLAW_GATEWAY_TOKEN}`
-      },
-      timeout: 60000
-    });
-
-    const botReply = response.data.response || response.data.message || 'ไม่สามารถตอบได้ในขณะนี้';
-    await replyMessage(replyToken, botReply);
-  } catch (error) {
-    console.error('Chat error:', error.message);
-    await replyMessage(replyToken, `⚠️ ${bot.bot_name} ขออภัย ตอนนี้ไม่สามารถตอบได้\n\nกรุณาลองใหม่ภายหลัง`);
-  }
+async function replyHistory(replyToken, userName) {
+  var userOrders = orders.filter(function(o) { return o.user === userName; });
+  if (userOrders.length === 0) return client.replyMessage(replyToken, { type: 'text', text: 'ยังไม่เคยสั่งเลยค่ะ' });
+  var t = '📜 ประวัติ\n';
+  var total = 0;
+  userOrders.slice(-5).forEach(function(o) { t += o.drink + ' - ' + o.price + ' บาท\n'; total += o.price; });
+  t += '\nรวม: ' + total + ' บาท';
+  return client.replyMessage(replyToken, { type: 'text', text: t });
 }
 
-// ============ OTHER COMMANDS ============
-async function listBots(replyToken, bots) {
-  if (bots.length === 0) {
-    await replyMessage(replyToken, 'คุณยังไม่มี Bot ค่ะ\n\nพิมพ์ "สร้าง bot" เพื่อสร้าง Bot แรกของคุณ!');
-    return;
-  }
-
-  const botList = bots.map((b, i) => {
-    const status = b.agent_id ? '✅' : '⏳';
-    return `${i + 1}. ${status} ${b.bot_name}\n   📋 ${b.bot_description || 'ไม่มีคำอธิบาย'}`;
-  }).join('\n\n');
-
-  await replyMessage(replyToken, `📋 Bot ของคุณ:\n\n${botList}\n\nพิมพ์ชื่อ Bot เพื่อคุยกับ Bot นั้น`);
-}
-
-async function showHelp(replyToken) {
-  const helpText = `💡 คำสั่งที่ใช้ได้:
-
-• สร้าง bot - สร้าง Bot ใหม่
-• รายชื่อ - ดู Bot ทั้งหมด
-• <ชื่อ Bot> - คุยกับ Bot นั้น
-• ช่วยเหลือ - แสดงคำช่วยเหลือ
-• ยกเลิก - ยกเลิกการทำรายการ
-
-🔧 Bot ที่สร้างจะเชื่อมต่อกับ AI จริง และจดจำได้ตลอด!`;
-
-  await replyMessage(replyToken, helpText);
-}
-
-async function cancelAction(replyToken) {
-  await replyMessage(replyToken, '❌ ยกเลิกแล้ว\n\nพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่ง');
-}
-
-// ============ START SERVER ============
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🤖 Mami_LineClaw is running on port ${PORT}`);
-});
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() { console.log('Coffee Bot on ' + PORT); });
